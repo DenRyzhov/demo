@@ -1,0 +1,78 @@
+apiVersion: apps/v1  # Используем актуальную версию API для Deployment
+kind: Deployment
+metadata:
+  name: my-web-app  # Имя вашего приложения
+  labels:
+    app: my-web-app  # Лейбл для идентификации приложения
+spec:
+  replicas: 4  # Начальное количество реплик, соответствующее нагрузке (4 пода)
+  selector:
+    matchLabels:
+      app: my-web-app
+  template:
+    metadata:
+      labels:
+        app: my-web-app  # Лейбл подов
+    spec:
+      containers:
+        - name: my-web-app-container
+          image: my-registry/my-web-app:latest  # Укажите ваш Docker-образ
+          ports:
+            - containerPort: 80  # Порт, на котором приложение принимает запросы
+          resources:
+            requests:
+              memory: "128Mi"  # Запрашиваемая память
+              cpu: "1"  # Запрашиваемый CPU для старта (можно завысить для инициализации)
+            limits:
+              memory: "128Mi"  # Ограничение по памяти
+              cpu: "2"  # Ограничение CPU для обработки пиковых нагрузок
+          startupProbe:  # Проверка на инициализацию приложения
+            httpGet:
+              path: /health  # Путь для проверки состояния приложения
+              port: 80
+            initialDelaySeconds: 30  # Задержка перед первой проверкой
+            periodSeconds: 10  # Интервал проверки
+          livenessProbe:  # Проверка работоспособности приложения
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 60  # Задержка перед первой проверкой после запуска
+            periodSeconds: 30  # Интервал проверки
+          readinessProbe:  # Проверка готовности приложения
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10  # Задержка перед первой проверкой на готовность
+            periodSeconds: 5  # Интервал проверки
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-web-app-service  # Имя сервиса для доступа к приложению
+spec:
+  type: ClusterIP  # Сервис доступен внутри кластера
+  selector:
+    app: my-web-app  # Селектор для подов, к которым обращается сервис
+  ports:
+    - port: 80  # Порт сервиса
+      targetPort: 80  # Порт приложения на контейнере
+---
+apiVersion: autoscaling/v2beta2  # Используем API для HPA
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-web-app-hpa  # Имя HPA
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1  # Указываем в каком API находится наш Deployment
+    kind: Deployment
+    name: my-web-app  # Имя развертываемого приложения
+  minReplicas: 1  # Минимальное количество реплик для снижения потребления ресурсов ночью
+  maxReplicas: 10  # Максимальное количество реплик для обработки пиковых нагрузок
+  metrics:  # Настройка метрик для автоскейлинга
+    - type: Resource
+      resource:
+        name: cpu  # Используем загрузку CPU для масштабирования
+        target:
+          type: Utilization
+          averageUtilization: 80  # Запускать новые поды, когда загрузка CPU превышает 80%
